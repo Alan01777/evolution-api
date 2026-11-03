@@ -12,6 +12,8 @@ WORKDIR /evolution
 COPY ./package*.json ./
 COPY ./tsconfig.json ./
 COPY ./tsup.config.ts ./
+# patches aplicados pelo patch-package no postinstall (ex.: correção da fila offline do Baileys)
+COPY ./patches ./patches
 
 RUN npm ci --silent
 

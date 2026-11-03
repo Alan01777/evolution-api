@@ -1085,21 +1085,36 @@ export class BaileysStartupService extends ChannelStartupService {
     ) => {
       try {
         for (const received of messages) {
-          if (
-            received?.messageStubParameters?.some?.((param) =>
-              [
-                'No matching sessions found for message',
-                'Bad MAC',
-                'failed to decrypt message',
-                'SessionError',
-                'Invalid PreKey ID',
-                'No session record',
-                'No session found to decrypt message',
-                'Message absent from node',
-              ].some((err) => param?.includes?.(err)),
-            )
-          ) {
+          const decryptError = received?.messageStubParameters?.find?.((param) =>
+            [
+              'No matching sessions found for message',
+              'Bad MAC',
+              'failed to decrypt message',
+              'SessionError',
+              'Invalid PreKey ID',
+              'No session record',
+              'No session found to decrypt message',
+              'Message absent from node',
+            ].some((err) => param?.includes?.(err)),
+          );
+          if (decryptError) {
             this.logger.warn(`Message ignored with messageStubParameters: ${JSON.stringify(received, null, 2)}`);
+
+            const isGroup = received.key?.remoteJid?.endsWith('@g.us');
+            if (
+              this.configService.get<Chatwoot>('CHATWOOT').ENABLED &&
+              this.localChatwoot?.enabled &&
+              !(isGroup && settings?.groupsIgnore)
+            ) {
+              // Sem await: não segura a fila de eventos da instância esperando o Chatwoot
+              this.chatwootService
+                .notifyUndecryptableMessage(
+                  { instanceName: this.instance.name, instanceId: this.instanceId },
+                  received,
+                  String(decryptError),
+                )
+                .catch((error) => this.logger.error(`Erro ao avisar mensagem ilegível: ${error}`));
+            }
             continue;
           }
           if (received.message?.conversation || received.message?.extendedTextMessage?.text) {

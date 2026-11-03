@@ -1,0 +1,36 @@
+diff --git a/node_modules/baileys/lib/Socket/messages-recv.js b/node_modules/baileys/lib/Socket/messages-recv.js
+index f2e2e10..ef0c028 100644
+--- a/node_modules/baileys/lib/Socket/messages-recv.js
++++ b/node_modules/baileys/lib/Socket/messages-recv.js
+@@ -1182,16 +1182,23 @@ export const makeMessagesRecvSocket = (config) => {
+             }
+             isProcessing = true;
+             const promise = async () => {
+-                while (nodes.length && ws.isOpen) {
+-                    const { type, node } = nodes.shift();
+-                    const nodeProcessor = nodeProcessorMap.get(type);
+-                    if (!nodeProcessor) {
+-                        onUnexpectedError(new Error(`unknown offline node type: ${type}`), 'processing offline node');
+-                        continue;
++                // patch (backport do 7.0.0-rc13+): um erro em um nó não pode travar a fila.
++                // No rc.9 a exceção escapava do loop e isProcessing ficava true para sempre,
++                // fazendo todos os nós offline seguintes ficarem presos até reconectar.
++                try {
++                    while (nodes.length && ws.isOpen) {
++                        const { type, node } = nodes.shift();
++                        const nodeProcessor = nodeProcessorMap.get(type);
++                        if (!nodeProcessor) {
++                            onUnexpectedError(new Error(`unknown offline node type: ${type}`), 'processing offline node');
++                            continue;
++                        }
++                        await nodeProcessor(node).catch(err => onUnexpectedError(err, `processing offline ${type}`));
+                     }
+-                    await nodeProcessor(node);
+                 }
+-                isProcessing = false;
++                finally {
++                    isProcessing = false;
++                }
+             };
+             promise().catch(error => onUnexpectedError(error, 'processing offline nodes'));
+         };
