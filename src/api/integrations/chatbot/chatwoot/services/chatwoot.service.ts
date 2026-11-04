@@ -1947,6 +1947,48 @@ export class ChatwootService {
     return messageContent;
   }
 
+  /**
+   * Cria uma nota privada na conversa avisando que chegou uma mensagem que não pôde
+   * ser descriptografada (Bad MAC, No session...). Antes essas mensagens eram
+   * descartadas em silêncio e o atendente nunca ficava sabendo delas.
+   */
+  public async notifyUndecryptableMessage(instance: InstanceDto, received: any, reason: string) {
+    try {
+      const key = received?.key;
+      if (!key?.remoteJid || key.fromMe || key.remoteJid.includes('@broadcast')) return;
+
+      // O Baileys pode emitir o mesmo stub várias vezes (retentativas): avisa uma vez só
+      const dedupKey = `${instance.instanceName}:decryptWarn:${key.id}`;
+      if (await this.cache.has(dedupKey)) return;
+      await this.cache.set(dedupKey, true, 60 * 60 * 24);
+
+      const conversationId = await this.createConversation(instance, {
+        key,
+        pushName: received.pushName,
+      });
+
+      if (!conversationId) {
+        this.logger.warn(`Aviso de mensagem ilegível não enviado: conversa não encontrada (${key.remoteJid})`);
+        return;
+      }
+
+      const timestamp = Number(received.messageTimestamp) || Math.floor(Date.now() / 1000);
+      const when = new Date(timestamp * 1000).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' });
+
+      await this.createMessage(
+        instance,
+        conversationId,
+        `⚠️ O cliente enviou uma mensagem em ${when} que a integração não conseguiu ler ` +
+          `(falha de criptografia: ${reason}). Confira a conversa no celular do WhatsApp. ` +
+          `Às vezes a mensagem chega aqui depois, sozinha.`,
+        'outgoing',
+        true,
+      );
+    } catch (error) {
+      this.logger.error(`Erro ao avisar mensagem ilegível: ${error}`);
+    }
+  }
+
   public async eventWhatsapp(event: string, instance: InstanceDto, body: any) {
     try {
       const waInstance = this.waMonitor.waInstances[instance.instanceName];
